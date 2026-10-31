@@ -1,7 +1,16 @@
 import json
+import pytest
 from pathlib import Path
 from streamlit.testing.v1 import AppTest
 from core import Academy
+
+
+@pytest.fixture(autouse=True)
+def browser_storage_stub(monkeypatch):
+    # AppTest does not run component JavaScript. Real browser coverage is separate.
+    def acknowledge(command, **kwargs):
+        return dict(id=command['id'], ok=True, token=None) if command else None
+    monkeypatch.setattr('auth._cookie_writer', acknowledge)
 
 
 def test_login_dashboard_quiz_and_results(tmp_path,monkeypatch):

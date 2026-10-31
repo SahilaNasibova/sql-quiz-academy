@@ -8,21 +8,31 @@ from core import SESSION_SECONDS
 
 COOKIE_NAME = 'sql_academy_session'
 _cookie_writer = components.declare_component(
-    'academy_session_cookie', path=str(Path(__file__).parent / 'components' / 'session_cookie')
+    'academy_session_storage_v2', path=str(Path(__file__).parent / 'components' / 'session_cookie')
 )
 
 
 def sync_login(db):
+    # Read browser storage on each new WebSocket. Hosting proxies may omit
+    # cookies from the headers exposed by st.context.cookies.
+    if not st.session_state.get('_browser_ready') and '_cookie_command' not in st.session_state:
+        st.session_state['_cookie_command'] = dict(id=secrets.token_hex(8), action='read')
     command = st.session_state.get('_cookie_command')
     acknowledgement = _cookie_writer(command=command, key='academy_cookie', default=None)
-    if command and acknowledgement and acknowledgement.get('id') == command['id']:
+    if command:
+        if not acknowledgement or acknowledgement.get('id') != command['id']:
+            st.info('Giriş yadda saxlanılır…' if command['action']=='set' else 'Giriş yoxlanılır…')
+            st.stop()
         del st.session_state['_cookie_command']
+        st.session_state['_browser_ready'] = True
+        if command['action'] == 'read':
+            st.session_state['_browser_token'] = acknowledgement.get('token')
+        elif command['action'] == 'delete':
+            st.session_state.pop('_browser_token', None)
         if not acknowledgement.get('ok'):
-            st.warning('Brauzer giriş kukisini saxlaya bilmədi. Kukilərə icazə verin; əks halda səhifə yenilənəndə yenidən giriş lazım olacaq.')
+            st.warning('Brauzer girişi yadda saxlaya bilmədi. Bu sayt üçün kukilərə və brauzer yaddaşına icazə verin.')
 
-    # Request cookies are captured when the browser opens a new WebSocket.
-    # Restore identity from the database, never from an email or role in the cookie.
-    token = st.session_state.get('_session_token') or st.context.cookies.get(COOKIE_NAME)
+    token = st.session_state.get('_session_token') or st.session_state.get('_browser_token')
     due = time.time() - st.session_state.get('_session_checked', 0) >= 300
     if token and ('user' not in st.session_state or due):
         user = db.session_user(token)
@@ -33,6 +43,7 @@ def sync_login(db):
         else:
             st.session_state.pop('user', None)
             st.session_state.pop('_session_token', None)
+            st.session_state.pop('_browser_token', None)
 
 
 def remember_login(db, user):
@@ -49,7 +60,7 @@ def remember_login(db, user):
 
 
 def logout(db):
-    token = st.session_state.get('_session_token') or st.context.cookies.get(COOKIE_NAME)
+    token = st.session_state.get('_session_token') or st.session_state.get('_browser_token')
     if token:
         db.revoke_session(token)
     st.session_state.clear()

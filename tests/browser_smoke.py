@@ -37,6 +37,10 @@ for q in json.loads(Path('sample_questions.json').read_text()):
             "def count_query(*args):\n"
             f"    with open({str(query_log)!r}, 'a') as log: log.write('query\\n')\n"
         )
+        # Simulate a hosting proxy that hides cookie headers from Streamlit.
+        with (Path(folder)/'sitecustomize.py').open('a') as patch:
+            patch.write("from streamlit.runtime.context import ContextProxy, StreamlitCookies\n")
+            patch.write("ContextProxy.cookies = property(lambda self: StreamlitCookies({}))\n")
         env['PYTHONPATH']=folder+os.pathsep+env.get('PYTHONPATH','')
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',0))
@@ -66,6 +70,8 @@ for q in json.loads(Path('sample_questions.json').read_text()):
                         page.wait_for_function("document.cookie.includes('sql_academy_session=')")
                         original=next(c for c in context.cookies() if c['name']=='sql_academy_session')
                         assert original['sameSite']=='Lax' and original['expires']>time.time()+6*86400
+                        # Prove recovery even when only browser local storage survives.
+                        context.clear_cookies()
                         for _ in range(2):
                             page.reload()
                             expect(page.get_by_role('heading',name='SQL öyrən, biliklərini sına!')).to_be_visible(timeout=15000)
@@ -96,13 +102,14 @@ for q in json.loads(Path('sample_questions.json').read_text()):
                             expect(page.get_by_role('heading',name='SQL öyrən, biliklərini sına!')).to_be_visible(timeout=15000)
                         page.get_by_role('button',name='Çıxış',exact=True).click()
                         expect(page.get_by_role('button',name='Daxil ol',exact=True)).to_be_visible(timeout=15000)
-                        page.wait_for_function("!document.cookie.includes('sql_academy_session=')")
+                        page.wait_for_function("!document.cookie.includes('sql_academy_session=') && !localStorage.getItem('sql_academy_session')")
                         page.reload()
                         expect(page.get_by_role('button',name='Daxil ol',exact=True)).to_be_visible(timeout=15000)
                         # A copied cookie must remain invalid after logout.
                         context.add_cookies([original])
                         page.reload()
                         expect(page.get_by_role('button',name='Daxil ol',exact=True)).to_be_visible(timeout=15000)
+                        page.evaluate("localStorage.removeItem('sql_academy_session')")
                         context.clear_cookies()
                     # Mobile-sized browser: the login page remains usable.
                     page.set_viewport_size({'width':390,'height':844})

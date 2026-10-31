@@ -39,7 +39,9 @@ For PostgreSQL, the application creates a separate `quiz_academy` schema instead
 
 ## Login persistence and performance
 
-Successful login creates a seven-day browser cookie containing a random session token. The database stores only its SHA-256 hash and expiry; identity and teacher privileges are looked up on the server. Refreshing the page or opening another tab in the same browser restores login. Clicking **Çıxış (Log out)** revokes that session and removes the cookie. Cookies must be enabled. In a shared browser, log out when finished.
+Successful login creates a seven-day browser cookie containing a random session token. The database stores only its SHA-256 hash and expiry; identity and teacher privileges are looked up on the server. Refreshing the page or opening another tab in the same browser restores login. Clicking **Çıxış (Log out)** revokes that session and removes the cookie. The browser must allow cookies or local storage. In a shared browser, log out when finished.
+
+The component reads the session token directly from browser storage on each new connection, including deployments whose proxy omits cookie headers. Local storage provides a fallback when cookies are unavailable. The dashboard is shown only after the browser acknowledges saving the login.
 
 The same-origin cookie component is bundled locally and needs no third-party script or additional secret. Cookies use `SameSite=Lax` and `Secure` on HTTPS. This JavaScript-managed cookie cannot be `HttpOnly`; a deployment with a dedicated authentication backend can provide that additional protection. With Supabase, sessions survive application restarts; local SQLite storage remains subject to the persistence limitations above.
 
