@@ -1,4 +1,6 @@
 import io
+import hashlib
+import importlib
 import json
 import os
 import time
@@ -6,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from sqlalchemy.exc import IntegrityError
-from core import Academy
+import core
 from ui import CSS, dashboard
 from auth import sync_login, remember_login, logout
 
@@ -23,15 +25,19 @@ def config(key, default=''):
         return default
 
 @st.cache_resource
-def database(url, teacher, teacher_password):
-    academy = Academy(url, teacher)
+def database(url, teacher, teacher_password, core_revision):
+    # Imported modules and cached resources can outlive a Streamlit source update.
+    if getattr(core, 'SOURCE_REVISION', None) != core_revision:
+        importlib.reload(core)
+    academy = core.Academy(url, teacher)
     if teacher_password:
         academy.provision_teacher(teacher_password)
     return academy
 
 url = config('DATABASE_URL', f'sqlite:///{Path(__file__).resolve().parent / "academy.db"}')
 try:
-    db = database(url, config('TEACHER_EMAIL', 'sahila.nasibova1@gmail.com'), config('TEACHER_PASSWORD'))
+    core_revision = hashlib.sha256(Path(core.__file__).read_bytes()).hexdigest()
+    db = database(url, config('TEACHER_EMAIL', 'sahila.nasibova1@gmail.com'), config('TEACHER_PASSWORD'), core_revision)
 except Exception:
     st.error('Verilənlər bazasına bağlantı qurulmadı. Administrator DATABASE_URL konfiqurasiyasını yoxlamalıdır.')
     st.stop()

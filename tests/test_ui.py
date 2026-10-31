@@ -115,3 +115,18 @@ def test_removed_active_quiz_recovers_without_error(tmp_path,monkeypatch):
     assert not app.exception
     assert any('bütün sualları' in message.value for message in app.info)
     assert not any('Remove me' in value.value for value in app.markdown)
+
+
+def test_stale_imported_database_class_is_reloaded(tmp_path,monkeypatch):
+    import core
+    import hashlib
+    monkeypatch.setenv('DATABASE_URL',f'sqlite:///{tmp_path}/upgrade.db')
+    monkeypatch.setenv('TEACHER_PASSWORD','')
+    # Reproduce an older imported module surviving a deployed source update.
+    monkeypatch.setattr(core,'SOURCE_REVISION','old-deployment')
+    monkeypatch.setattr(core,'Academy',type('LegacyAcademy',(),{}))
+    app=AppTest.from_file(Path(__file__).resolve().parents[1] / 'app.py').run()
+    assert not app.exception and not app.error
+    assert hasattr(core.Academy,'active_attempt')
+    assert core.SOURCE_REVISION==hashlib.sha256(Path(core.__file__).read_bytes()).hexdigest()
+    assert any(button.label=='Daxil ol' for button in app.button)

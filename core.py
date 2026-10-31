@@ -4,7 +4,10 @@ import json
 import secrets
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from sqlalchemy import create_engine, text
+
+SOURCE_REVISION = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 SESSION_SECONDS = 7 * 24 * 60 * 60
 
