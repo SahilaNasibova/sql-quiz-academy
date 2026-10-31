@@ -58,6 +58,23 @@ The quiz timer updates only its own display and makes no database requests while
 - CSV/XLSX question imports, a CSV template, student results, question difficulty statistics, and Excel result exports.
 - Question snapshots for active quizzes, so later edits do not change how an existing attempt is graded.
 
+## Automatic Excel and CSV imports
+
+In **Teacher panel → Excel / CSV**, choose a file. The app validates and imports it automatically; no separate submit button is needed. The `Oracle_SQL_15_Test_Suallari.xlsx` layout is supported directly:
+
+| Workbook column | Application field |
+| --- | --- |
+| Sual | Question text |
+| Variant A, Variant B, Variant C, Variant D | Answer choices |
+| Düzgün cavab | Correct answer, A–D |
+| Qısa izah | Explanation |
+| Mövzu (optional) | Topic |
+| Bal (optional) | Points |
+
+The number column is ignored. If topic or points are missing, the defaults selected before upload apply: **Oracle SQL**, **1 point**. English template headers are also supported. The app preserves SQL text and line breaks, accepts up to 500 questions and 5 MB per file, and shows a row-specific message when validation fails. A file is validated before any questions are written, and the import is committed in one transaction. Identical active questions are skipped, including repeated rows in the same file or a subsequent upload. Deleted questions can be deliberately reimported as new questions.
+
+After a successful import, the questions are immediately available in the question bank and topic quizzes. The teacher sees the added/skipped counts and a preview. The uploaded workbook and its answer key are not committed to the GitHub repository.
+
 ## Navigation and question management
 
 Click the **SQL Quiz Academy** logo at the top of the sidebar to return to the overview. Topic search on the overview and text/topic filters in the question bank make it easier to find content. The overview offers a **resume quiz** action when an unfinished attempt exists. During a quiz, the question selector shows answered questions, progress tracks saved answers, and an unanswered-question count appears before submission.

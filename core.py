@@ -124,16 +124,48 @@ class Academy:
     def questions(self):
         return self.rows('SELECT * FROM questions WHERE active=1 ORDER BY topic,id')
 
-    def save_question(self, email, q):
-        self.require_teacher(email)
-        options = q['options']
-        if not q['prompt'].strip() or len(options) != 4 or not all(str(x).strip() for x in options) or int(q['answer']) not in range(4) or int(q['points']) < 1:
-            raise ValueError('Sual, dörd variant, düzgün cavab (0–3) və müsbət bal tələb olunur.')
-        with self.engine.begin() as c:
-            saved = c.execute(text('INSERT INTO questions VALUES (:id,:topic,:prompt,:options,:answer,:points,:explanation,1) ON CONFLICT (id) DO UPDATE SET topic=:topic,prompt=:prompt,options=:options,answer=:answer,points=:points,explanation=:explanation,active=1 WHERE questions.active=1'), dict(id=q.get('id') or secrets.token_hex(12), topic=q['topic'], prompt=q['prompt'], options=json.dumps(options), answer=int(q['answer']), points=int(q['points']), explanation=q.get('explanation','')))
+    @staticmethod
+    def validate_question(q):
+        options=q['options']
+        if not q['topic'].strip() or not q['prompt'].strip() or len(options)!=4 or not all(str(x).strip() for x in options) or int(q['answer']) not in range(4) or not 1 <= int(q['points']) <= 100:
+            raise ValueError('Mövzu, sual, dörd variant, düzgün cavab və 1–100 arası bal tələb olunur.')
 
-            if saved.rowcount == 0:
-                raise ValueError('Bu sual artıq silinib. Səhifəni yeniləyin.')
+    def _save_question(self,c,q):
+        saved=c.execute(text('INSERT INTO questions VALUES (:id,:topic,:prompt,:options,:answer,:points,:explanation,1) ON CONFLICT (id) DO UPDATE SET topic=:topic,prompt=:prompt,options=:options,answer=:answer,points=:points,explanation=:explanation,active=1 WHERE questions.active=1'), dict(id=q.get('id') or secrets.token_hex(12),topic=q['topic'],prompt=q['prompt'],options=json.dumps(q['options']),answer=int(q['answer']),points=int(q['points']),explanation=q.get('explanation','')))
+        if saved.rowcount==0:
+            raise ValueError('Bu sual artıq silinib. Səhifəni yeniləyin.')
+
+    def save_question(self,email,q):
+        self.require_teacher(email)
+        self.validate_question(q)
+        with self.engine.begin() as c:
+            self._save_question(c,q)
+
+    @staticmethod
+    def question_identity(q):
+        options=json.loads(q['options']) if isinstance(q['options'],str) else q['options']
+        return json.dumps([q['topic'].strip(),q['prompt'].strip(),[str(x).strip() for x in options],int(q['answer']),int(q['points']),q.get('explanation','').strip()],ensure_ascii=False)
+
+    def import_questions(self,email,items):
+        self.require_teacher(email)
+        if not 1<=len(items)<=500:
+            raise ValueError('1–500 sual tələb olunur.')
+        for q in items:
+            self.validate_question(q)
+        added=0
+        with self.engine.begin() as c:
+            # Serialize concurrent imports on PostgreSQL to avoid duplicate uploads.
+            if self.engine.dialect.name=='postgresql':
+                c.execute(text('SELECT id FROM settings WHERE id=1 FOR UPDATE'))
+            existing={self.question_identity(dict(row)) for row in c.execute(text('SELECT * FROM questions WHERE active=1')).mappings()}
+            for q in items:
+                identity=self.question_identity(q)
+                if identity in existing:
+                    continue
+                self._save_question(c,{**q,'id':None})
+                existing.add(identity)
+                added+=1
+        return dict(added=added,skipped=len(items)-added,total=len(items))
 
     @staticmethod
     def _score(questions, answers, finished=None):

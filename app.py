@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 import core
 from ui import CSS, dashboard
 from auth import sync_login, remember_login, logout
+from question_import import parse_questions
 
 st.set_page_config(page_title='SQL Quiz Academy', page_icon='🎓', layout='wide')
 st.markdown(CSS, unsafe_allow_html=True)
@@ -290,29 +291,52 @@ else:
                 st.rerun()
     with import_tab:
         if import_tab.open:
-            st.write('Sütunlar: topic, prompt, A, B, C, D, answer (A–D), points, explanation. Yeni suallar əlavə edilir.')
-            template = pd.DataFrame([dict(topic='Oracle SQL',prompt='SELECT 1 FROM dual nə qaytarır?',A='1',B='0',C='NULL',D='Xəta',answer='A',points=1,explanation='DUAL bir sətirli cədvəldir.')])
+            st.subheader('Excel-dən avtomatik sual əlavə et')
+            st.write('Faylı seçən kimi suallar yoxlanılır və sual bankına əlavə olunur. Azərbaycan və ingilis sütun adları avtomatik tanınır.')
+            st.caption('Dəstəklənən format: Sual, Variant A–D, Düzgün cavab, Qısa izah. Mövzu və Bal sütunları istəyə bağlıdır.')
+            left,right=st.columns(2)
+            default_topic=left.text_input('Faylda mövzu yoxdursa',value='Oracle SQL')
+            default_points=right.number_input('Faylda bal yoxdursa',min_value=1,max_value=100,value=1)
+            template=pd.DataFrame([{'Sual':'SELECT 1 FROM dual nə qaytarır?','Variant A':'1','Variant B':'0','Variant C':'NULL','Variant D':'Xəta','Düzgün cavab':'A','Qısa izah':'DUAL bir sətirli cədvəldir.'}])
             st.download_button('CSV şablonunu endir',template.to_csv(index=False).encode('utf-8-sig'),'questions.csv','text/csv')
-            upload = st.file_uploader('Excel və ya CSV',type=['xlsx','csv'])
-            if upload and st.button('Sualları yüklə'):
-                try:
-                    if upload.size > 5_000_000:
-                        raise ValueError('Fayl ən çox 5 MB olmalıdır.')
-                    frame = (pd.read_csv(upload,keep_default_na=False) if upload.name.endswith('.csv') else pd.read_excel(upload,keep_default_na=False))
-                    required = {'topic','prompt','A','B','C','D','answer','points','explanation'}
-                    if not required.issubset(frame.columns) or not 1 <= len(frame) <= 500:
-                        raise ValueError('Sütunları yoxlayın; 1–500 sual yükləyə bilərsiniz.')
-                    items = []
-                    for _,r in frame.iterrows():
-                        ans = str(r['answer']).strip().upper()
-                        if ans not in list('ABCD') or not all(str(r[k]).strip() for k in ['topic','prompt','A','B','C','D']) or not 1 <= int(r['points']) <= 100:
-                            raise ValueError('Variantlar, mövzu, sual, cavab və balı yoxlayın.')
-                        items.append(dict(topic=str(r['topic']),prompt=str(r['prompt']),options=[str(r[k]) for k in 'ABCD'],answer='ABCD'.index(ans),points=int(r['points']),explanation=str(r['explanation'])))
-                    for item in items:
-                        db.save_question(user['email'],item)
-                    st.success(f'{len(items)} sual əlavə edildi.')
-                except Exception:
-                    st.error('Fayl yüklənmədi. Şablona uyğunluğu yoxlayın.')
+            upload=st.file_uploader('Excel və ya CSV',type=['xlsx','csv'],key='question_upload')
+            if upload:
+                content=upload.getvalue()
+                digest=hashlib.sha256(content).hexdigest()
+                if st.session_state.get('last_import_digest')!=digest:
+                    try:
+                        with st.spinner('Suallar yoxlanılır və əlavə olunur…'):
+                            items=parse_questions(content,upload.name,default_topic,default_points)
+                            outcome=db.import_questions(user['email'],items)
+                        st.session_state.import_feedback=dict(ok=True,**outcome)
+                        st.session_state.import_preview=[db.question_identity(q) for q in items]
+                    except ValueError as e:
+                        st.session_state.import_feedback=dict(ok=False,error=str(e))
+                        st.session_state.pop('import_preview',None)
+                    except Exception:
+                        st.session_state.import_feedback=dict(ok=False,error='Fayl əlavə edilmədi. Bazaya bağlantını yoxlayıb yenidən cəhd edin.')
+                        st.session_state.pop('import_preview',None)
+                    st.session_state.last_import_digest=digest
+                feedback=st.session_state.get('import_feedback',{})
+                if feedback.get('ok'):
+                    st.success(f"{feedback['added']} sual əlavə edildi. {feedback['skipped']} təkrar sual ötürüldü. Suallar artıq testlərdə istifadəyə hazırdır.")
+                    preview_keys=set(st.session_state.import_preview)
+                    current=[q for q in db.questions() if db.question_identity(q) in preview_keys]
+                    st.caption(f'Hazırda sual bankında olan idxal sualları: {len(current)}')
+                    if current:
+                        st.dataframe([{'Mövzu':q['topic'],'Sual':q['prompt'],'Bal':q['points']} for q in current],hide_index=True,use_container_width=True)
+                    else:
+                        st.info('Bu fayldakı suallar artıq silinib və ya dəyişdirilib.')
+                    st.button('Sual bankını aç',on_click=lambda: st.session_state.update(teacher_tabs='Suallar və test'))
+                else:
+                    st.error(feedback.get('error','Fayl oxunmadı.'))
+                    if st.button('Yenidən yoxla'):
+                        st.session_state.pop('last_import_digest',None)
+                        st.rerun()
+            else:
+                st.session_state.pop('last_import_digest',None)
+                st.session_state.pop('import_feedback',None)
+                st.session_state.pop('import_preview',None)
     with stats_tab:
         if stats_tab.open:
             rows = db.results(user['email'],teacher=True)

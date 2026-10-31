@@ -18,7 +18,8 @@ PYTHON=str(ROOT/'.venv/bin/python') if (ROOT/'.venv/bin/python').exists() else s
 
 def main():
     with tempfile.TemporaryDirectory(prefix='academy-browser-') as folder:
-        env=dict(os.environ,DATABASE_URL=f'sqlite:///{folder}/browser.db',TEACHER_EMAIL='teacher@example.com',TEACHER_PASSWORD='browser-teacher-password')
+        upload_path=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else Path(folder)/'questions.xlsx'
+        env=dict(os.environ,IMPORT_TEST_PATH=str(upload_path),DATABASE_URL=f'sqlite:///{folder}/browser.db',TEACHER_EMAIL='teacher@example.com',TEACHER_PASSWORD='browser-teacher-password')
         seed="""import json, os
 from core import Academy
 from pathlib import Path
@@ -27,6 +28,12 @@ x.provision_teacher(os.environ['TEACHER_PASSWORD'])
 x.register('Test Student','student@example.com','browser-student-password')
 for q in json.loads(Path('sample_questions.json').read_text()):
     x.save_question('teacher@example.com',q)
+if not Path(os.environ['IMPORT_TEST_PATH']).exists():
+    from openpyxl import Workbook
+    book=Workbook()
+    book.active.append(['Sual','Variant A','Variant B','Variant C','Variant D','Düzgün cavab','Qısa izah'])
+    book.active.append(['Imported browser question','Yes','No','Maybe','Never','A','Imported explanation'])
+    book.save(os.environ['IMPORT_TEST_PATH'])
 """
         subprocess.run([PYTHON,'-c',seed],env=env,cwd=ROOT,check=True)
         # Count database operations without recording SQL parameters or credentials.
@@ -86,7 +93,9 @@ for q in json.loads(Path('sample_questions.json').read_text()):
                             expect(page.get_by_text('Hələ tamamlanmış test yoxdur.',exact=True)).to_be_visible()
                             page.get_by_role('tab',name='Excel / CSV',exact=True).click()
                             expect(page.get_by_role('button',name='CSV şablonunu endir')).to_be_visible()
-                            page.get_by_role('tab',name='Suallar və test',exact=True).click()
+                            page.get_by_test_id('stFileUploader').locator('input[type=file]').set_input_files(str(upload_path))
+                            expect(page.get_by_text(re.compile('Suallar artıq testlərdə',re.I))).to_be_visible(timeout=15000)
+                            page.get_by_role('button',name='Sual bankını aç',exact=True).click()
                             expect(page.get_by_role('heading',name='Sualı sil',exact=True)).to_be_visible()
                             page.get_by_role('button',name='▱ SQL Quiz Academy',exact=True).click()
                             expect(page.get_by_role('heading',name='SQL öyrən, biliklərini sına!')).to_be_visible()
