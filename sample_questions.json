@@ -1,0 +1,8 @@
+[
+ {"topic":"Oracle SQL","prompt":"`NULL` dəyərini yoxlamaq üçün hansı şərt doğrudur?","options":["x = NULL","x IS NULL","x == NULL","x IN NULL"],"answer":1,"points":1,"explanation":"NULL üçün IS NULL istifadə olunur."},
+ {"topic":"Oracle SQL","prompt":"Aşağıdakı sorğu nə qaytarır?\n```sql\nSELECT NVL(NULL, 10) FROM dual;\n```","options":["NULL","0","10","Xəta"],"answer":2,"points":2,"explanation":"NVL birinci arqument NULL olduqda ikinci arqumenti qaytarır."},
+ {"topic":"Oracle SQL","prompt":"Qruplaşdırılmış nəticələri hansı hissə filtrləyir?","options":["ORDER BY","HAVING","SELECT","DISTINCT"],"answer":1,"points":1,"explanation":"HAVING qruplar üzərində şərt tətbiq edir."},
+ {"topic":"PL/SQL","prompt":"SELECT INTO heç bir sətir qaytarmadıqda hansı istisna yaranır?","options":["TOO_MANY_ROWS","ZERO_DIVIDE","NO_DATA_FOUND","INVALID_CURSOR"],"answer":2,"points":2,"explanation":"SELECT INTO sıfır sətir üçün NO_DATA_FOUND yaradır."},
+ {"topic":"PL/SQL","prompt":"Bu blokun nəticəsi nədir?\n```sql\nBEGIN\n  DBMS_OUTPUT.PUT_LINE(2 + 3);\nEND;\n```","options":["23","5","NULL","Xəta"],"answer":1,"points":1,"explanation":"Ədədi toplama nəticəsində 5 çıxışa yazılır."},
+ {"topic":"PL/SQL","prompt":"Tranzaksiyanı təsdiqləyən əmr hansıdır?","options":["ROLLBACK","SAVEPOINT","COMMIT","DECLARE"],"answer":2,"points":1,"explanation":"COMMIT tranzaksiyanın dəyişikliklərini təsdiqləyir."}
+]
