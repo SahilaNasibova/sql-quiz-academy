@@ -36,7 +36,11 @@ except Exception:
     st.error('Verilənlər bazasına bağlantı qurulmadı. Administrator DATABASE_URL konfiqurasiyasını yoxlamalıdır.')
     st.stop()
 
-st.sidebar.markdown('<div class="brand"><span>▱</span>SQL Quiz<br>Academy</div>', unsafe_allow_html=True)
+def go_home():
+    st.session_state.navigation = 'İcmal'
+
+st.sidebar.button('▱ SQL Quiz Academy', key='brand_home', on_click=go_home,
+                  help='Ana səhifəyə keç', use_container_width=True)
 
 sync_login(db)
 
@@ -89,6 +93,15 @@ if st.sidebar.button('Çıxış'):
 page = st.sidebar.radio('Bölmələr', ['İcmal','Testlər','Nəticələr'] + (['Müəllim paneli'] if user['teacher'] else []), key='navigation')
 
 
+def finish_current_attempt(aid):
+    try:
+        db.finish(user['email'], aid)
+    except PermissionError:
+        st.session_state.pop('attempt_id', None)
+        st.session_state.quiz_notice = 'Bu testin bütün sualları müəllim tərəfindən silinib.'
+    st.rerun()
+
+
 def show_result(a):
     r = a['result']
     c1,c2 = st.columns(2)
@@ -113,11 +126,13 @@ if page == 'İcmal':
 
 elif page == 'Testlər':
     st.header('Biliklərini yoxla')
+    if st.session_state.get('quiz_notice'):
+        st.info(st.session_state.pop('quiz_notice'))
     aid = st.session_state.get('attempt_id')
     if not aid:
-        active = db.rows('SELECT id FROM attempts WHERE email=:email AND result IS NULL ORDER BY started DESC', email=user['email'])
+        active = db.active_attempt(user['email'])
         if active:
-            aid = active[0]['id']
+            aid = active['id']
             st.session_state.attempt_id = aid
     if not aid:
         questions = db.questions()
@@ -135,16 +150,19 @@ elif page == 'Testlər':
         @st.fragment(run_every=1.0)
         def countdown(deadline):
             if time.time() >= deadline:
-                db.finish(user['email'], aid)
-                st.rerun()
+                finish_current_attempt(aid)
             remaining = max(0, int(deadline-time.time()))
             st.metric('Qalan vaxt', f'{remaining//60:02d}:{remaining%60:02d}')
 
         def quiz():
-            a = db.public_attempt(user['email'],aid)
-            if a['result'] is None and time.time() >= a['deadline']:
-                db.finish(user['email'],aid)
+            try:
+                a = db.public_attempt(user['email'],aid)
+            except PermissionError:
+                st.session_state.pop('attempt_id', None)
+                st.session_state.quiz_notice = 'Bu testin bütün sualları müəllim tərəfindən silinib.'
                 st.rerun()
+            if a['result'] is None and time.time() >= a['deadline']:
+                finish_current_attempt(aid)
             if a['result'] is not None:
                 show_result(a)
                 if st.button('Yeni test'):
@@ -154,13 +172,27 @@ elif page == 'Testlər':
             countdown(a['deadline'])
             i = min(st.session_state.get('question_index',0),len(a['questions'])-1)
             q = a['questions'][i]
-            st.progress((i+1)/len(a['questions']), text=f"Sual {i+1} / {len(a['questions'])}")
+            answered = len(a['answers'])
+            st.progress(answered/len(a['questions']), text=f"Cavablandırılıb: {answered} / {len(a['questions'])}")
+            st.caption(f"Sual {i+1} / {len(a['questions'])}")
+            jump = st.selectbox('Suala keç', range(len(a['questions'])), index=i,
+                                format_func=lambda n: f"{'✓' if str(n) in a['answers'] else '○'} Sual {n+1}",
+                                key=f"jump_{aid}_{i}_{len(a['questions'])}")
+            if jump != i:
+                st.session_state.question_index = jump
+                st.rerun()
             st.caption(f"{q['topic']} · {q['points']} bal")
             st.markdown(q['prompt'])
             opts = json.loads(q['options'])
-            chosen = st.radio('Cavabınızı seçin', range(4), index=a['answers'].get(str(i)), format_func=lambda x:f"{'ABCD'[x]}. {opts[x]}", key=f'{aid}_{i}')
+            chosen = st.radio('Cavabınızı seçin', range(4), index=a['answers'].get(str(i)), format_func=lambda x:f"{'ABCD'[x]}. {opts[x]}", key=f"{aid}_{q['id']}")
             if chosen is not None and chosen != a['answers'].get(str(i)):
-                db.answer(user['email'],aid,i,chosen)
+                try:
+                    accepted = db.answer(user['email'],aid,i,chosen,question_id=q['id'])
+                except PermissionError:
+                    accepted = False
+                if not accepted:
+                    st.rerun()
+                st.rerun()
             left, middle, right = st.columns(3)
             if left.button('← Geri', disabled=i==0):
                 st.session_state.question_index = i-1
@@ -168,10 +200,11 @@ elif page == 'Testlər':
             if middle.button('İrəli →', disabled=i==len(a['questions'])-1):
                 st.session_state.question_index = i+1
                 st.rerun()
+            if answered < len(a['questions']):
+                st.caption(f"{len(a['questions'])-answered} sual cavablandırılmayıb.")
             confirm = st.checkbox('Testi bitirmək istəyirəm')
             if right.button('Testi bitir', disabled=not confirm, type='primary'):
-                db.finish(user['email'],aid)
-                st.rerun()
+                finish_current_attempt(aid)
         quiz()
 
 elif page == 'Nəticələr':
@@ -182,7 +215,10 @@ elif page == 'Nəticələr':
     for row in rows:
         r = json.loads(row['result'])
         with st.expander(f"{r['finished'][:16]} UTC · {r['percent']}% · {r['score']}/{r['total']}"):
-            show_result(db.attempt(user['email'],row['id']))
+            result_attempt = dict(row)
+            for field in ['questions', 'answers', 'result']:
+                result_attempt[field] = json.loads(result_attempt[field])
+            show_result(result_attempt)
 
 else:
     st.header('Müəllim paneli')
@@ -193,7 +229,16 @@ else:
             if st.button('Müddəti yadda saxla'):
                 db.set_duration(user['email'],duration)
                 st.success('Yadda saxlanıldı.')
-            qs = db.questions()
+            all_questions = db.questions()
+            c1,c2,c3 = st.columns(3)
+            c1.metric('Sual bankı', len(all_questions))
+            c2.metric('Mövzular', len({item['topic'] for item in all_questions}))
+            c3.metric('Ümumi bal', sum(item['points'] for item in all_questions))
+            search = st.text_input('Sual axtar', placeholder='Sualın mətnini və ya mövzunu yazın…').strip().casefold()
+            topic_filter = st.selectbox('Mövzu filtri', ['Hamısı']+sorted({item['topic'] for item in all_questions}))
+            qs = [item for item in all_questions if (topic_filter=='Hamısı' or item['topic']==topic_filter)
+                  and (not search or search in (item['prompt']+' '+item['topic']).casefold())]
+            st.caption(f'{len(qs)} / {len(all_questions)} sual göstərilir')
             st.subheader('Sualı sil')
             if qs:
                 question_by_id = {item['id']: item for item in qs}
@@ -202,7 +247,7 @@ else:
                     format_func=lambda value: f"{question_by_id[value]['topic']} — {question_by_id[value]['prompt'][:100]}",
                     key='delete_question_id',
                 )
-                st.caption('Sual yeni testlərdən çıxarılacaq. Əvvəlki test nəticələri saxlanacaq.')
+                st.warning('Sual bütün bölmələrdən, davam edən testlərdən və əvvəlki cavab təhlillərindən silinəcək. Ballar qalan suallara görə yenidən hesablanacaq; sualsız test qeydləri silinəcək.')
                 confirmed = st.checkbox(
                     'Seçilmiş sualı silməyi təsdiqləyirəm', key=f'confirm_delete_{delete_id}'
                 )
@@ -233,7 +278,7 @@ else:
                     st.rerun()
                 except ValueError as e:
                     st.error(str(e))
-            if st.button('Nümunə sualları əlavə et',disabled=bool(qs)):
+            if st.button('Nümunə sualları əlavə et',disabled=bool(all_questions)):
                 for item in json.loads(Path(__file__).with_name('sample_questions.json').read_text()):
                     db.save_question(user['email'],item)
                 st.rerun()

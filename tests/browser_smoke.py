@@ -88,6 +88,8 @@ for q in json.loads(Path('sample_questions.json').read_text()):
                             expect(page.get_by_role('button',name='CSV şablonunu endir')).to_be_visible()
                             page.get_by_role('tab',name='Suallar və test',exact=True).click()
                             expect(page.get_by_role('heading',name='Sualı sil',exact=True)).to_be_visible()
+                            page.get_by_role('button',name='▱ SQL Quiz Academy',exact=True).click()
+                            expect(page.get_by_role('heading',name='SQL öyrən, biliklərini sına!')).to_be_visible()
                         if email.startswith('student'):
                             page.get_by_role('button',name='▶ Testə başla').first.click()
                             expect(page.get_by_text('Qalan vaxt',exact=True)).to_be_visible()
@@ -98,6 +100,7 @@ for q in json.loads(Path('sample_questions.json').read_text()):
                             assert len(query_log.read_text().splitlines())==initial_queries, 'Idle timer must not query the database'
                             assert page.get_by_role('radio').count()==before
                             page.get_by_text(re.compile(r'^A\. ')).last.click()
+                            expect(page.get_by_text(re.compile('Cavablandırılıb: 1 /'))).to_be_visible()
                             page.reload()
                             expect(page.get_by_role('heading',name='SQL öyrən, biliklərini sına!')).to_be_visible(timeout=15000)
                         page.get_by_role('button',name='Çıxış',exact=True).click()

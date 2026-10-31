@@ -48,14 +48,12 @@ def test_deadline_is_enforced_server_side(db):
     assert db.finish('student@example.com',aid)['score']==0
 
 
-def test_question_snapshot_survives_edit_and_delete(db):
+def test_question_snapshot_survives_edit(db):
     aid=db.start('student@example.com','SQL')
     q=db.questions()[0]
     q['options']=json.loads(q['options'])
     q['answer']=1
     db.save_question('teacher@example.com',q)
-    db.remove_question('teacher@example.com',q['id'])
-    assert not db.questions()
     db.answer('student@example.com',aid,0,0)
     assert db.finish('student@example.com',aid)['score']==3
 
@@ -105,3 +103,65 @@ def test_topic_catalog_and_result_summaries(db):
     db.finish('student@example.com',aid)
     rows=db.result_summaries('student@example.com')
     assert len(rows)==1 and set(rows[0])=={'result'}
+
+
+
+def test_deletion_purges_active_and_completed_attempts_and_regrades(db):
+    db.save_question('teacher@example.com',dict(topic='SQL',prompt='Keep this question',options=['A','B','C','D'],answer=2,points=2,explanation='Keep explanation'))
+    delete_id=next(q['id'] for q in db.questions() if q['prompt']=='SELECT 1 FROM dual')
+    finished=db.start('student@example.com','SQL')
+    for i,q in enumerate(db.attempt('student@example.com',finished)['questions']):
+        db.answer('student@example.com',finished,i,0 if q['id']==delete_id else 1)
+    assert db.finish('student@example.com',finished)['score']==3
+    active=db.start('teacher@example.com','SQL')
+    for i,q in enumerate(db.attempt('teacher@example.com',active)['questions']):
+        db.answer('teacher@example.com',active,i,q['answer'])
+    db.remove_question('teacher@example.com',delete_id)
+    for email,aid in [('student@example.com',finished),('teacher@example.com',active)]:
+        attempt=db.attempt(email,aid)
+        assert len(attempt['questions'])==1
+        assert delete_id not in json.dumps(attempt['questions'])
+        assert set(attempt['answers'])=={'0'}
+    result=db.attempt('student@example.com',finished)['result']
+    assert result['score']==0 and result['total']==2 and result['percent']==0
+    assert db.finish('teacher@example.com',active)['score']==2
+    assert db.topic_catalog()==[{'topic':'SQL','count':1}]
+    assert all(delete_id not in row['questions'] for row in db.results('teacher@example.com',teacher=True))
+
+
+def test_deleting_last_question_removes_empty_results_and_requires_teacher(db):
+    aid=db.start('student@example.com','SQL')
+    db.finish('student@example.com',aid)
+    q=db.questions()[0]
+    with pytest.raises(PermissionError):
+        db.remove_question('student@example.com',q['id'])
+    assert db.questions()
+    db.remove_question('teacher@example.com',q['id'])
+    assert not db.questions() and not db.topic_catalog()
+    assert not db.results('student@example.com') and not db.result_summaries('student@example.com')
+    with pytest.raises(PermissionError):
+        db.attempt('student@example.com',aid)
+    q['options']=json.loads(q['options'])
+    with pytest.raises(ValueError):
+        db.save_question('teacher@example.com',q)
+
+
+def test_legacy_deleted_questions_are_cleaned_on_upgrade(db):
+    from sqlalchemy import text
+    aid=db.start('student@example.com','SQL')
+    with db.engine.begin() as c:
+        c.execute(text('UPDATE questions SET active=0'))
+        c.execute(text("DELETE FROM maintenance WHERE name='purge_deleted_v1'"))
+    restored=Academy(str(db.engine.url),'teacher@example.com')
+    assert restored.active_attempt('student@example.com') is None
+    with pytest.raises(PermissionError):
+        restored.attempt('student@example.com',aid)
+
+
+def test_answer_from_stale_question_cannot_apply_to_another_question(db):
+    db.save_question('teacher@example.com',dict(topic='SQL',prompt='Keep',options=['A','B','C','D'],answer=2,points=2,explanation=''))
+    aid=db.start('student@example.com','SQL')
+    first=db.attempt('student@example.com',aid)['questions'][0]
+    db.remove_question('teacher@example.com',first['id'])
+    assert not db.answer('student@example.com',aid,0,1,question_id=first['id'])
+    assert db.attempt('student@example.com',aid)['answers']=={}

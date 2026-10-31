@@ -75,3 +75,43 @@ def test_teacher_panel(tmp_path,monkeypatch):
     assert next(button for button in app.button if button.label=='Sualı sil').disabled
 
     assert not teacher_result_queries, 'Closed statistics tab must not load all results'
+
+
+
+def test_logo_returns_home_and_question_bank_search(tmp_path,monkeypatch):
+    monkeypatch.setenv('DATABASE_URL',f'sqlite:///{tmp_path}/navigation.db')
+    monkeypatch.setenv('TEACHER_EMAIL','teacher@example.com')
+    monkeypatch.setenv('TEACHER_PASSWORD','teacher-password')
+    app=AppTest.from_file(Path(__file__).resolve().parents[1] / 'app.py').run()
+    next(t for t in app.text_input if t.label=='E-poçt').set_value('teacher@example.com')
+    next(t for t in app.text_input if t.label=='Şifrə').set_value('teacher-password')
+    next(b for b in app.button if b.label=='Daxil ol').click().run()
+    app.sidebar.radio[0].set_value('Müəllim paneli').run()
+    next(b for b in app.button if b.label=='Nümunə sualları əlavə et').click().run()
+    next(t for t in app.text_input if t.label=='Sual axtar').set_value('NVL').run()
+    delete_selector=next(t for t in app.selectbox if t.label=='Silmək üçün sual')
+    assert len(delete_selector.options)==1 and 'NVL' in delete_selector.options[0]
+    next(b for b in app.sidebar.button if b.label=='▱ SQL Quiz Academy').click().run()
+    assert app.sidebar.radio[0].value=='İcmal'
+    assert app.title[0].value=='SQL öyrən, biliklərini sına!'
+    assert not app.exception
+
+
+def test_removed_active_quiz_recovers_without_error(tmp_path,monkeypatch):
+    url=f'sqlite:///{tmp_path}/removed.db'
+    monkeypatch.setenv('DATABASE_URL',url)
+    monkeypatch.setenv('TEACHER_EMAIL','teacher@example.com')
+    db=Academy(url,'teacher@example.com')
+    db.register('Test Student','student@example.com','student-password')
+    db.save_question('teacher@example.com',dict(topic='SQL',prompt='Remove me',options=['A','B','C','D'],answer=0,points=1,explanation=''))
+    qid=db.questions()[0]['id']
+    app=AppTest.from_file(Path(__file__).resolve().parents[1] / 'app.py').run()
+    next(t for t in app.text_input if t.label=='E-poçt').set_value('student@example.com')
+    next(t for t in app.text_input if t.label=='Şifrə').set_value('student-password')
+    next(b for b in app.button if b.label=='Daxil ol').click().run()
+    next(b for b in app.button if b.label=='▶  Testə başla').click().run()
+    db.remove_question('teacher@example.com',qid)
+    app.run()
+    assert not app.exception
+    assert any('bütün sualları' in message.value for message in app.info)
+    assert not any('Remove me' in value.value for value in app.markdown)

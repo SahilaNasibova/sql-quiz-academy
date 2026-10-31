@@ -14,6 +14,8 @@ h1,h2,h3 {color:#101936;letter-spacing:-.035em;}
 [data-testid="stSidebar"] [role="radiogroup"] {gap:12px;}
 [data-testid="stSidebar"] [role="radiogroup"] label {padding:12px;border-radius:10px;}
 [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {background:linear-gradient(110deg,#8254fa,#6037e9);}
+.st-key-brand_home button {background:transparent!important;border:0!important;padding:8px 0 24px;font-size:24px;font-weight:800;text-align:left;color:#f1edff!important;}
+.st-key-brand_home button:hover {color:#ba9dff!important;}
 .brand {font-size:23px;font-weight:800;line-height:1.2;padding:10px 0 30px;}
 .brand span {font-size:42px;color:#b294ff;float:left;margin-right:12px;}
 .breadcrumb {color:#75809a;font-size:13px;margin-bottom:20px;}
@@ -51,15 +53,24 @@ def dashboard(db,user,start):
     stats=[('▤','Mövcud mövzular',str(len(topics))),('✓','Tamamlanan testlər',str(len(results))),('▥','Orta nəticə',f"{sum(r['percent'] for r in results)/len(results):.1f}%" if results else '—'),('♜','Ən yüksək nəticə',f"{max(r['percent'] for r in results):g}%" if results else '—')]
     for col,(icon,label,value) in zip(st.columns(4),stats):
         col.markdown(f'<div class="stat"><div class="stat-icon">{icon}</div><div><div class="stat-label">{label}</div><div class="stat-value">{value}</div></div></div>',unsafe_allow_html=True)
+    active = db.active_attempt(user['email'])
+    if active:
+        st.info('Yarımçıq testiniz var. Cavablarınız saxlanılıb; vaxt dayanmayıb.')
+        def resume():
+            st.session_state.attempt_id = active['id']
+            st.session_state.navigation = 'Testlər'
+        st.button('▶ Testə davam et',type='primary',on_click=resume)
     st.subheader('Biliklərini sına')
+    search = st.text_input('Mövzu axtar', placeholder='Məsələn: Oracle SQL və ya PL/SQL').strip().casefold()
+    topics = [topic for topic in topics if not search or search in topic.casefold()]
     if not topics:
-        st.info('Müəllim sualları əlavə etdikdən sonra testlər burada görünəcək.')
+        st.info('Axtarışa uyğun mövzu tapılmadı.' if catalog else 'Müəllim sualları əlavə etdikdən sonra testlər burada görünəcək.')
     columns=st.columns(3)
     for i,topic in enumerate(topics):
         count=counts[topic]
         with columns[i%3]:
             st.markdown(f'<div class="quiz-card"><div class="quiz-icon">{ "⌘" if "PL" in topic else "▱" }</div><h3>{escape(topic)}</h3><span class="badge">Bilik yoxlaması</span><p>▤ &nbsp; {count} sual &nbsp; · &nbsp; ◷ {duration} dəqiqə</p><p>{escape(topic)} üzrə biliklərini praktiki suallarla sına.</p></div>',unsafe_allow_html=True)
-            st.button('▶  Testə başla',key=f'dash_{topic}',type='primary',use_container_width=True,on_click=start,args=(topic,))
+            st.button('▶  Testə başla',key=f'dash_{topic}',type='primary',use_container_width=True,on_click=start,args=(topic,),disabled=bool(active))
     left,right=st.columns([1.2,1])
     with left:
         st.markdown('<div class="panel"><h3>◷ &nbsp; Son nəticələrim</h3>'+(''.join(f'<p>{escape(r["finished"][:16])} UTC · <b>{r["percent"]}%</b></p>' for r in results[:3]) if results else '<div class="empty">Hələlik heç bir test nəticəniz yoxdur.<br>Testlərə başla və burada nəticələrini izlə!</div>')+'</div>',unsafe_allow_html=True)

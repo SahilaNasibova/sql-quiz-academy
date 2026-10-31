@@ -31,6 +31,7 @@ class Academy:
             self.engine.dispose()
             self.engine = create_engine(url, pool_pre_ping=True, connect_args={'options': '-csearch_path=quiz_academy'})
         statements = [
+            'CREATE TABLE IF NOT EXISTS maintenance (name TEXT PRIMARY KEY)',
             'CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, email TEXT NOT NULL, expires DOUBLE PRECISION NOT NULL)',
             'CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions (expires)',
             'CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL)',
@@ -43,6 +44,10 @@ class Academy:
                 c.execute(text(statement))
             c.execute(text('CREATE INDEX IF NOT EXISTS attempts_email_started_idx ON attempts (email,started)'))
             c.execute(text('INSERT INTO settings (id,duration) VALUES (1,20) ON CONFLICT (id) DO NOTHING'))
+            if not c.execute(text("SELECT name FROM maintenance WHERE name='purge_deleted_v1'")).first():
+                deleted = {row[0] for row in c.execute(text('SELECT id FROM questions WHERE active=0'))}
+                self._purge_snapshots(c, deleted)
+                c.execute(text("INSERT INTO maintenance VALUES ('purge_deleted_v1') ON CONFLICT (name) DO NOTHING"))
 
     def rows(self, sql, **params):
         with self.engine.connect() as c:
@@ -122,12 +127,53 @@ class Academy:
         if not q['prompt'].strip() or len(options) != 4 or not all(str(x).strip() for x in options) or int(q['answer']) not in range(4) or int(q['points']) < 1:
             raise ValueError('Sual, dörd variant, düzgün cavab (0–3) və müsbət bal tələb olunur.')
         with self.engine.begin() as c:
-            c.execute(text('INSERT INTO questions VALUES (:id,:topic,:prompt,:options,:answer,:points,:explanation,1) ON CONFLICT (id) DO UPDATE SET topic=:topic,prompt=:prompt,options=:options,answer=:answer,points=:points,explanation=:explanation,active=1'), dict(id=q.get('id') or secrets.token_hex(12), topic=q['topic'], prompt=q['prompt'], options=json.dumps(options), answer=int(q['answer']), points=int(q['points']), explanation=q.get('explanation','')))
+            saved = c.execute(text('INSERT INTO questions VALUES (:id,:topic,:prompt,:options,:answer,:points,:explanation,1) ON CONFLICT (id) DO UPDATE SET topic=:topic,prompt=:prompt,options=:options,answer=:answer,points=:points,explanation=:explanation,active=1 WHERE questions.active=1'), dict(id=q.get('id') or secrets.token_hex(12), topic=q['topic'], prompt=q['prompt'], options=json.dumps(options), answer=int(q['answer']), points=int(q['points']), explanation=q.get('explanation','')))
+
+            if saved.rowcount == 0:
+                raise ValueError('Bu sual artıq silinib. Səhifəni yeniləyin.')
+
+    @staticmethod
+    def _score(questions, answers, finished=None):
+        total = sum(q['points'] for q in questions)
+        score = sum(q['points'] for i,q in enumerate(questions) if answers.get(str(i)) == q['answer'])
+        return dict(score=score, total=total, percent=round(score/total*100,1) if total else 0,
+                    finished=finished or datetime.now(timezone.utc).isoformat())
+
+    def _purge_snapshots(self, c, deleted):
+        if not deleted:
+            return
+        lock = ' FOR UPDATE' if self.engine.dialect.name == 'postgresql' else ''
+        rows = c.execute(text('SELECT * FROM attempts ORDER BY id'+lock)).mappings().all()
+        for row in rows:
+            questions, answers = json.loads(row['questions']), json.loads(row['answers'])
+            if not any(q['id'] in deleted for q in questions):
+                continue
+            remaining, remapped = [], {}
+            for old_index,q in enumerate(questions):
+                if q['id'] in deleted:
+                    continue
+                new_index = len(remaining)
+                remaining.append(q)
+                if str(old_index) in answers:
+                    remapped[str(new_index)] = answers[str(old_index)]
+            if not remaining:
+                c.execute(text('DELETE FROM attempts WHERE id=:id'), {'id':row['id']})
+                continue
+            result = None
+            if row['result']:
+                result = json.dumps(self._score(remaining,remapped,json.loads(row['result'])['finished']))
+            c.execute(text('UPDATE attempts SET questions=:questions,answers=:answers,result=:result WHERE id=:id'),
+                      dict(id=row['id'], questions=json.dumps(remaining), answers=json.dumps(remapped), result=result))
 
     def remove_question(self, email, qid):
         self.require_teacher(email)
         with self.engine.begin() as c:
             c.execute(text('UPDATE questions SET active=0 WHERE id=:id'), {'id': qid})
+            self._purge_snapshots(c, {qid})
+
+    def active_attempt(self, email):
+        rows = self.rows('SELECT id,deadline FROM attempts WHERE email=:email AND result IS NULL ORDER BY started DESC LIMIT 1',email=email)
+        return rows[0] if rows else None
 
     def duration(self):
         return self.rows('SELECT duration FROM settings WHERE id=1')[0]['duration']
@@ -140,26 +186,35 @@ class Academy:
             c.execute(text('UPDATE settings SET duration=:duration WHERE id=1'), {'duration': duration})
 
     def start(self, email, topic):
-        active = self.rows('SELECT * FROM attempts WHERE email=:email AND result IS NULL ORDER BY started DESC', email=email)
-        if active:
-            return active[0]['id']
-        qs = [q for q in self.questions() if topic == 'Hamısı' or q['topic'] == topic]
-        if not qs:
-            raise ValueError('Bu mövzuda sual yoxdur.')
-        secrets.SystemRandom().shuffle(qs)
-        aid, now = secrets.token_hex(16), time.time()
         with self.engine.begin() as c:
-            c.execute(text('INSERT INTO attempts VALUES (:id,:email,:started,:deadline,:questions,:answers,NULL)'), dict(id=aid,email=email,started=now,deadline=now+self.duration()*60,questions=json.dumps(qs),answers='{}'))
+            # A deletion waits until the new snapshot has been committed.
+            lock = ' FOR SHARE' if self.engine.dialect.name == 'postgresql' else ''
+            qs = [dict(q) for q in c.execute(text('SELECT * FROM questions WHERE active=1 ORDER BY id'+lock)).mappings()]
+            active = c.execute(text('SELECT id FROM attempts WHERE email=:email AND result IS NULL ORDER BY started DESC'),{'email':email}).first()
+            if active:
+                return active[0]
+            qs = [q for q in qs if topic == 'Hamısı' or q['topic'] == topic]
+            if not qs:
+                raise ValueError('Bu mövzuda sual yoxdur.')
+            secrets.SystemRandom().shuffle(qs)
+            aid, now = secrets.token_hex(16), time.time()
+            duration = c.execute(text('SELECT duration FROM settings WHERE id=1')).scalar_one()
+            c.execute(text('INSERT INTO attempts VALUES (:id,:email,:started,:deadline,:questions,:answers,NULL)'), dict(id=aid,email=email,started=now,deadline=now+duration*60,questions=json.dumps(qs),answers='{}'))
         return aid
 
-    def attempt(self, email, aid):
-        rows = self.rows('SELECT * FROM attempts WHERE id=:id AND email=:email', id=aid,email=email)
-        if not rows:
-            raise PermissionError('Test tapılmadı.')
-        a = rows[0]
-        for k in ['questions','answers','result']:
-            a[k] = json.loads(a[k]) if a[k] else None
+    def _load_attempt(self, c, email, aid, lock=False):
+        suffix = ' FOR UPDATE' if lock and self.engine.dialect.name == 'postgresql' else ''
+        row = c.execute(text('SELECT * FROM attempts WHERE id=:id AND email=:email'+suffix),dict(id=aid,email=email)).mappings().first()
+        if row is None:
+            raise PermissionError('Test tapılmadı və ya bütün sualları silinib.')
+        a = dict(row)
+        for key in ['questions','answers','result']:
+            a[key] = json.loads(a[key]) if a[key] else None
         return a
+
+    def attempt(self, email, aid):
+        with self.engine.connect() as c:
+            return self._load_attempt(c,email,aid)
 
     def public_attempt(self, email, aid):
         a = self.attempt(email,aid)
@@ -167,27 +222,27 @@ class Academy:
             a['questions'] = [{k:v for k,v in q.items() if k not in ('answer','explanation')} for q in a['questions']]
         return a
 
-    def answer(self, email, aid, index, choice):
-        a = self.attempt(email,aid)
-        if a['result'] is not None or time.time() >= a['deadline']:
-            return False
-        if index not in range(len(a['questions'])) or choice not in range(4):
-            raise ValueError('Yanlış cavab.')
-        a['answers'][str(index)] = choice
+    def answer(self, email, aid, index, choice, question_id=None):
         with self.engine.begin() as c:
-            c.execute(text('UPDATE attempts SET answers=:answers WHERE id=:id AND email=:email AND result IS NULL AND deadline>:now'), dict(answers=json.dumps(a['answers']),id=aid,email=email,now=time.time()))
-        return True
+            a = self._load_attempt(c,email,aid,lock=True)
+            if a['result'] is not None or time.time() >= a['deadline']:
+                return False
+            if question_id is not None and (index not in range(len(a['questions'])) or a['questions'][index]['id'] != question_id):
+                return False
+            if index not in range(len(a['questions'])) or choice not in range(4):
+                raise ValueError('Yanlış cavab.')
+            a['answers'][str(index)] = choice
+            saved = c.execute(text('UPDATE attempts SET answers=:answers WHERE id=:id AND email=:email AND result IS NULL AND deadline>:now'), dict(answers=json.dumps(a['answers']),id=aid,email=email,now=time.time()))
+            return saved.rowcount == 1
 
     def finish(self, email, aid):
-        a = self.attempt(email,aid)
-        if a['result'] is not None:
-            return a['result']
-        total = sum(q['points'] for q in a['questions'])
-        score = sum(q['points'] for i,q in enumerate(a['questions']) if a['answers'].get(str(i)) == q['answer'])
-        result = dict(score=score,total=total,percent=round(score/total*100,1),finished=datetime.now(timezone.utc).isoformat())
         with self.engine.begin() as c:
+            a = self._load_attempt(c,email,aid,lock=True)
+            if a['result'] is not None:
+                return a['result']
+            result = self._score(a['questions'],a['answers'])
             c.execute(text('UPDATE attempts SET result=:result WHERE id=:id AND email=:email AND result IS NULL'), dict(result=json.dumps(result),id=aid,email=email))
-        return self.attempt(email,aid)['result']
+            return result
 
     def results(self, email, teacher=False):
         if teacher:

@@ -58,6 +58,14 @@ The quiz timer updates only its own display and makes no database requests while
 - CSV/XLSX question imports, a CSV template, student results, question difficulty statistics, and Excel result exports.
 - Question snapshots for active quizzes, so later edits do not change how an existing attempt is graded.
 
+## Navigation and question management
+
+Click the **SQL Quiz Academy** logo at the top of the sidebar to return to the overview. Topic search on the overview and text/topic filters in the question bank make it easier to find content. The overview offers a **resume quiz** action when an unfinished attempt exists. During a quiz, the question selector shows answered questions, progress tracks saved answers, and an unanswered-question count appears before submission.
+
+Deleting a question now removes it from the question bank, topic cards, active quiz snapshots, completed answer reviews, and question statistics. Completed scores and spreadsheet exports are recalculated using the remaining questions. Attempts with no questions left are removed. Remaining answers are remapped by question identity so deletion cannot assign an answer to a different question. The teacher panel explains these effects before confirmation. Other open browser tabs reflect the change on their next interaction or refresh.
+
+On first startup after this update, a one-time migration also removes previously deactivated questions from existing attempt snapshots. Editing a question still preserves the original version in existing attempts; deletion explicitly removes that version everywhere. These changes take effect when the updated app starts against your database.
+
 ## Deploy to Streamlit Community Cloud
 
 1. Create a free Supabase project and configure the server connection and database access restrictions.
