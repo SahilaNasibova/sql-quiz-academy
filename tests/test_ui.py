@@ -33,6 +33,13 @@ def test_login_dashboard_quiz_and_results(tmp_path,monkeypatch):
 
 
 def test_teacher_panel(tmp_path,monkeypatch):
+    teacher_result_queries=[]
+    original_results=Academy.results
+    def tracked_results(self,email,teacher=False):
+        if teacher:
+            teacher_result_queries.append(email)
+        return original_results(self,email,teacher=teacher)
+    monkeypatch.setattr(Academy,'results',tracked_results)
     monkeypatch.setenv('DATABASE_URL',f'sqlite:///{tmp_path}/teacher.db')
     monkeypatch.setenv('TEACHER_EMAIL','teacher@example.com')
     monkeypatch.setenv('TEACHER_PASSWORD','teacher-password')
@@ -57,3 +64,5 @@ def test_teacher_panel(tmp_path,monkeypatch):
     assert len(edit.options)==6
     assert any(message.value=='Sual silindi.' for message in app.success)
     assert next(button for button in app.button if button.label=='Sualı sil').disabled
+
+    assert not teacher_result_queries, 'Closed statistics tab must not load all results'

@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body><script>
+// Local, same-origin Streamlit component; no CDN or external scripts.
+const cookieName = 'sql_academy_session';
+const send = (type, extra = {}) => window.parent.postMessage({isStreamlitMessage: true, type, ...extra}, '*');
+let handled = null;
+window.addEventListener('message', (event) => {
+  if (event.source !== window.parent || event.data.type !== 'streamlit:render') return;
+  const args = event.data.args;
+  if (!args.command || args.command.id === handled) return;
+  const command = args.command;
+  const secure = location.protocol === 'https:' ? '; Secure' : '';
+  try {
+    if (command.action === 'set') {
+      document.cookie = `${cookieName}=${encodeURIComponent(command.token)}; Path=/; Max-Age=${command.max_age}; SameSite=Lax${secure}`;
+    } else if (command.action === 'delete') {
+      document.cookie = `${cookieName}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+    }
+    const saved = document.cookie.split('; ').find(item => item.startsWith(cookieName + '='));
+    const ok = command.action === 'delete' ? !saved : saved === `${cookieName}=${encodeURIComponent(command.token)}`;
+    handled = command.id;
+    send('streamlit:setComponentValue', {value: {id: command.id, ok}, dataType: 'json'});
+  } catch (_) {
+    handled = command.id;
+    send('streamlit:setComponentValue', {value: {id: command.id, ok: false}, dataType: 'json'});
+  }
+});
+send('streamlit:componentReady', {apiVersion: 1});
+send('streamlit:setFrameHeight', {height: 0});
+</script></body></html>

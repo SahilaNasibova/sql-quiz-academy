@@ -37,6 +37,14 @@ Use **Supabase → Connect → Session pooler** for IPv4 support. The username i
 
 For PostgreSQL, the application creates a separate `quiz_academy` schema instead of using Supabase's default `public` schema. Keep this schema out of the Supabase Data API's exposed schemas and do not grant access to the `anon` or `authenticated` roles. The initial connection role must have permission to create schemas and tables. The application uses a server-side PostgreSQL connection only. The Supabase connection has not yet been validated in this environment; test it against your own project before deployment.
 
+## Login persistence and performance
+
+Successful login creates a seven-day browser cookie containing a random session token. The database stores only its SHA-256 hash and expiry; identity and teacher privileges are looked up on the server. Refreshing the page or opening another tab in the same browser restores login. Clicking **Çıxış (Log out)** revokes that session and removes the cookie. Cookies must be enabled. In a shared browser, log out when finished.
+
+The same-origin cookie component is bundled locally and needs no third-party script or additional secret. Cookies use `SameSite=Lax` and `Secure` on HTTPS. This JavaScript-managed cookie cannot be `HttpOnly`; a deployment with a dedicated authentication backend can provide that additional protection. With Supabase, sessions survive application restarts; local SQLite storage remains subject to the persistence limitations above.
+
+The quiz timer updates only its own display and makes no database requests while counting down. The server still enforces the deadline when accepting answers or grading. Teacher provisioning runs during cached resource initialization, existing teacher accounts skip password rehashing, dashboard queries omit question snapshots and reuse the duration value, and closed teacher tabs do not compute statistics or generate spreadsheets. The first request after a free hosting service wakes up can still take longer.
+
 ## Features
 
 - Student registration with full name, email, and password. Teacher privileges are restricted to the configured account.
@@ -65,7 +73,17 @@ Free plans may include application sleep, database pausing, storage limits, and 
 .venv/bin/python -m pytest -q
 ```
 
-Automated tests cover authentication, teacher authorization, answer-key privacy, server-enforced deadlines, score calculation, repeated quiz submission, and Streamlit login, quiz, and teacher-panel workflows.
+Automated tests cover authentication, teacher authorization, answer-key privacy, server-enforced deadlines, score calculation, repeated quiz submission, session expiry and revocation, and Streamlit login, quiz, and teacher-panel workflows.
+
+Optional real-browser checks use Playwright and Chromium:
+
+```bash
+.venv/bin/python -m pip install playwright==1.62.0
+.venv/bin/python -m playwright install chromium
+.venv/bin/python tests/browser_smoke.py
+```
+
+The browser check starts a temporary application and database, checks teacher/student login across refreshes and new tabs, verifies logout and rejection of a revoked cookie, exercises teacher tabs, and confirms that idle timer ticks make no database calls. Set `CHROMIUM_PATH` to use an existing Chromium executable instead of a Playwright-managed browser.
 
 ## Current limitations
 

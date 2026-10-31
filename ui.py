@@ -43,9 +43,11 @@ def dashboard(db,user,start):
     st.title('SQL öyrən, biliklərini sına!')
     st.caption('Oracle SQL və PL/SQL üzrə şəxsi öyrənmə məkanınız.')
     st.markdown('''<div class="hero"><div><h2>SQL-ə hakim olmağa hazırsan?</h2><p>Praktik testlərlə biliklərini yoxla, yeni mövzuları öyrən və SQL bacarıqlarını inkişaf etdir.</p></div><div class="code-window"><div class="dots">● ● ●</div><span class="sql">SELECT</span> knowledge<br><span class="sql">FROM</span> academy<br><span class="sql">WHERE</span> success = <span class="string">'TRUE'</span>;</div></div>''',unsafe_allow_html=True)
-    questions=db.questions()
-    topics=sorted({q['topic'] for q in questions})
-    results=[json.loads(r['result']) for r in db.results(user['email'])]
+    catalog=db.topic_catalog()
+    topics=[item['topic'] for item in catalog]
+    counts={item['topic']:item['count'] for item in catalog}
+    duration=db.duration()
+    results=[json.loads(r['result']) for r in db.result_summaries(user['email'])]
     stats=[('▤','Mövcud mövzular',str(len(topics))),('✓','Tamamlanan testlər',str(len(results))),('▥','Orta nəticə',f"{sum(r['percent'] for r in results)/len(results):.1f}%" if results else '—'),('♜','Ən yüksək nəticə',f"{max(r['percent'] for r in results):g}%" if results else '—')]
     for col,(icon,label,value) in zip(st.columns(4),stats):
         col.markdown(f'<div class="stat"><div class="stat-icon">{icon}</div><div><div class="stat-label">{label}</div><div class="stat-value">{value}</div></div></div>',unsafe_allow_html=True)
@@ -54,9 +56,9 @@ def dashboard(db,user,start):
         st.info('Müəllim sualları əlavə etdikdən sonra testlər burada görünəcək.')
     columns=st.columns(3)
     for i,topic in enumerate(topics):
-        count=sum(q['topic']==topic for q in questions)
+        count=counts[topic]
         with columns[i%3]:
-            st.markdown(f'<div class="quiz-card"><div class="quiz-icon">{ "⌘" if "PL" in topic else "▱" }</div><h3>{escape(topic)}</h3><span class="badge">Bilik yoxlaması</span><p>▤ &nbsp; {count} sual &nbsp; · &nbsp; ◷ {db.duration()} dəqiqə</p><p>{escape(topic)} üzrə biliklərini praktiki suallarla sına.</p></div>',unsafe_allow_html=True)
+            st.markdown(f'<div class="quiz-card"><div class="quiz-icon">{ "⌘" if "PL" in topic else "▱" }</div><h3>{escape(topic)}</h3><span class="badge">Bilik yoxlaması</span><p>▤ &nbsp; {count} sual &nbsp; · &nbsp; ◷ {duration} dəqiqə</p><p>{escape(topic)} üzrə biliklərini praktiki suallarla sına.</p></div>',unsafe_allow_html=True)
             st.button('▶  Testə başla',key=f'dash_{topic}',type='primary',use_container_width=True,on_click=start,args=(topic,))
     left,right=st.columns([1.2,1])
     with left:

@@ -66,3 +66,42 @@ def test_wrong_answer_and_teacher_results(db):
     assert db.finish('student@example.com',aid)['percent']==0
     assert len(db.results('teacher@example.com',teacher=True))==1
     assert len(db.results('student@example.com'))==1
+
+
+def test_session_persists_across_database_instances_and_stores_only_hash(db):
+    token=db.create_session('student@example.com')
+    stored=db.rows('SELECT * FROM sessions')
+    assert stored[0]['token_hash'] != token
+    assert token not in json.dumps(stored)
+    restored=Academy(str(db.engine.url),'teacher@example.com')
+    assert restored.session_user(token)==dict(email='student@example.com',name='Student One',teacher=False)
+    assert restored.session_user('student@example.com') is None
+    assert restored.session_user(token+'tampered') is None
+    db.revoke_session(token)
+    assert restored.session_user(token) is None
+
+
+def test_expired_session_is_rejected_and_cleaned_up(db):
+    from sqlalchemy import text
+    token=db.create_session('teacher@example.com')
+    assert db.session_user(token)['teacher']
+    with db.engine.begin() as c:
+        c.execute(text('UPDATE sessions SET expires=:now'),{'now':time.time()-1})
+    assert db.session_user(token) is None
+    db.create_session('student@example.com')
+    assert len(db.rows('SELECT * FROM sessions'))==1
+
+
+def test_existing_teacher_does_not_rehash_password(db,monkeypatch):
+    def unexpected_hash(*args,**kwargs):
+        raise AssertionError('Existing teacher should not be hashed again')
+    monkeypatch.setattr('core.password_hash',unexpected_hash)
+    db.provision_teacher('another-long-password')
+
+
+def test_topic_catalog_and_result_summaries(db):
+    assert db.topic_catalog()==[{'topic':'SQL','count':1}]
+    aid=db.start('student@example.com','SQL')
+    db.finish('student@example.com',aid)
+    rows=db.result_summaries('student@example.com')
+    assert len(rows)==1 and set(rows[0])=={'result'}
