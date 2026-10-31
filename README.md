@@ -1,10 +1,10 @@
 # SQL Quiz Academy
 
-Azərbaycan dilində Oracle SQL və PL/SQL test platforması. Streamlit interfeysi tünd yan menyu, bənövşəyi banner, real statistika və mövzu kartları ilə hazırlanıb.
+An Oracle SQL and PL/SQL quiz platform with an Azerbaijani user interface. Built with Streamlit, it features a dark sidebar, a purple welcome banner, live statistics, and topic cards.
 
-## Lokal işə salmaq
+## Run locally
 
-Python 3.12 istifadə edin:
+Use Python 3.12:
 
 ```bash
 cd /workspace/sql-quiz-academy
@@ -13,52 +13,60 @@ python -m venv .venv
 .venv/bin/python -m streamlit run app.py --server.address 0.0.0.0
 ```
 
-Lokal sınaqda SQLite avtomatik yaradılır. İctimai tətbiqdə davamlı yaddaş üçün Supabase PostgreSQL istifadə edin. SQLite məlumatları Streamlit Cloud yenidən başladıqda itə bilər.
+SQLite is created automatically for local development. Use Supabase PostgreSQL for persistent storage in a public deployment. Local SQLite data may be lost when Streamlit Community Cloud restarts the application.
 
-## Müəllim hesabı və gizli konfiqurasiya
+## Teacher account and secrets
 
-Standart müəllim ünvanı `sahila.nasibova1@gmail.com`-dur. Bu ünvan açıq qeydiyyatda bloklanır. Hesab yalnız serverdə `TEACHER_PASSWORD` təyin olunanda yaradılır. Şifrə ən azı 10 simvol olmalıdır; tətbiqdə scrypt ilə heşlənir. Şifrə dəyişəni mövcud hesabın şifrəsini dəyişmir. İlkin yaradılmadan sonra onu konfiqurasiyadan silmək olar.
+The default teacher email is `sahila.nasibova1@gmail.com`. Public registration is blocked for this address. The account is created only when `TEACHER_PASSWORD` is configured on the server. The password must contain at least 10 characters and is hashed with scrypt. Changing this variable does not change an existing account's password. You can remove it from the configuration after the account has been created.
 
-Streamlit Community Cloud → App settings → Secrets bölməsinə aşağıdakı açarları əlavə edin. Şifrələri GitHub-a və ya çata yazmayın. Lokal istifadə üçün eyni açarları `.streamlit/secrets.toml` faylında saxlamaq olar; fayl Git tərəfindən nəzərə alınmır.
+Add the following settings in **Streamlit Community Cloud → App settings → Secrets**. Keep passwords out of GitHub and chat. For local development, you can use the same settings in `.streamlit/secrets.toml`, which is ignored by Git.
 
 ```toml
 TEACHER_EMAIL = "sahila.nasibova1@gmail.com"
-# TEACHER_PASSWORD = burada öz güclü ilkin şifrənizi təyin edin
-# DATABASE_URL = Supabase-dən alınan SQLAlchemy bağlantısı
+# TEACHER_PASSWORD = set your own strong initial password here
+# DATABASE_URL = your Supabase SQLAlchemy connection URL
 ```
 
-`DATABASE_URL` formatı: `postgresql+psycopg://USER:URL_ENCODED_PASSWORD@POOLER_HOST:5432/postgres?sslmode=require`. Supabase → Connect → Session pooler bağlantısını istifadə edin (IPv4 dəstəyi). İstifadəçi adı adətən `postgres.PROJECT_REF` olur. Şifrədəki xüsusi simvollar URL kodlaşdırılmalıdır. Bağlantı məlumatlarını yalnız Secrets bölməsində saxlayın.
+The `DATABASE_URL` format is:
 
-Tətbiq PostgreSQL-də `quiz_academy` adlı ayrıca schema yaradır; cədvəllər Supabase-in standart `public` schema-sına yazılmır. Bu schema-nı Supabase Data API-nin exposed schemas siyahısına əlavə etməyin və anon/authenticated rollarına giriş verməyin. İlkin bağlantı rolunun schema və cədvəl yaratmaq icazəsi olmalıdır. Tətbiq yalnız serverdəki PostgreSQL bağlantısından istifadə edir. Supabase bağlantısı bu mühitdə hələ yoxlanmayıb; yayımdan əvvəl öz layihənizdə sınaq tələb olunur.
+```text
+postgresql+psycopg://USER:URL_ENCODED_PASSWORD@POOLER_HOST:5432/postgres?sslmode=require
+```
 
-## Funksiyalar
+Use **Supabase → Connect → Session pooler** for IPv4 support. The username is typically `postgres.PROJECT_REF`. Special characters in the password must be URL-encoded. Store connection credentials only in Secrets.
 
-- Ad-soyad, e-poçt və şifrə ilə tələbə qeydiyyatı; müəllim rolu yalnız konfiqurasiya olunmuş hesaba verilir.
-- Oracle SQL və PL/SQL nümunə sualları; müəllim panelində “Nümunə sualları əlavə et” düyməsi ilə yüklənir.
-- A–D variantları, Markdown SQL kod blokları, əvvəlki/növbəti sual, hər saniyə yenilənən sayğac.
-- Server vaxtına əsaslanan son tarix; cavablar serverdə yadda saxlanılır. Aktiv test girişdən sonra davam edir; sessiya bağlansa belə vaxt dayanmaz.
-- Cavab açarı test zamanı brauzerə göstərilmir. Test bitdikdən sonra bal, faiz və izahlar görünür.
-- Sual bankı, redaktə, silmə, mövzu və sual balı; ümumi test müddəti 1–180 dəqiqədir. Mövzu üzrə bütün aktiv suallar testə daxil olur.
-- CSV/XLSX idxalı və CSV şablonu; tələbə nəticələri, çətin sual statistikası, Excel ixracı.
-- Davam edən testlər sualların başlanğıc nüsxəsini saxlayır; sonrakı redaktə qiymətləndirməni dəyişmir.
+For PostgreSQL, the application creates a separate `quiz_academy` schema instead of using Supabase's default `public` schema. Keep this schema out of the Supabase Data API's exposed schemas and do not grant access to the `anon` or `authenticated` roles. The initial connection role must have permission to create schemas and tables. The application uses a server-side PostgreSQL connection only. The Supabase connection has not yet been validated in this environment; test it against your own project before deployment.
 
-## Streamlit Community Cloud-da yayımlamaq
+## Features
 
-1. Supabase pulsuz layihəsi yaradın; server bağlantısını və cədvəl giriş məhdudiyyətlərini hazırlayın.
-2. Streamlit Community Cloud-da GitHub hesabınıza daxil olun, bu reponu, `main` branch və `app.py` faylını seçin. Python 3.12 seçin.
-3. Advanced settings / Secrets bölməsində `DATABASE_URL`, `TEACHER_EMAIL`, ilkin `TEACHER_PASSWORD` təyin edin.
-4. Deploy edin, müəllim hesabına daxil olun və nümunə sualları əlavə edin.
-5. Tələbə kimi ayrıca hesab yaradaraq tam testi yoxlayın; telefon ekranında menyu, variantlar və nəticələri yoxlayın. Bundan sonra Streamlit-in verdiyi real `*.streamlit.app` ünvanını paylaşın.
+- Student registration with full name, email, and password. Teacher privileges are restricted to the configured account.
+- Sample Oracle SQL and PL/SQL questions, loaded using the **“Nümunə sualları əlavə et” (Add sample questions)** button in the teacher panel.
+- A–D answer choices, Markdown SQL code blocks, previous/next navigation, and a timer that refreshes every second.
+- Server-enforced deadlines and server-side answer storage. Active quizzes resume after login, and closing the session does not pause the timer.
+- Answer keys remain hidden during a quiz. Scores, percentages, and explanations become available after submission.
+- A question bank with editing, deletion, topics, and points per question. The shared quiz duration can be set to 1–180 minutes. Each topic quiz includes all active questions in that topic.
+- CSV/XLSX question imports, a CSV template, student results, question difficulty statistics, and Excel result exports.
+- Question snapshots for active quizzes, so later edits do not change how an existing attempt is graded.
 
-Pulsuz planlarda tətbiq yatması, verilənlər bazasının dayandırılması, saxlanma və hesablama limitləri ola bilər. Streamlit və Supabase-in cari limitlərini hesab panellərindən yoxlayın. Bu layihə Oracle serverinə SQL icra etmir; SQL/PLSQL üzrə çoxvariantlı bilik yoxlamasıdır.
+## Deploy to Streamlit Community Cloud
 
-## Yoxlamalar
+1. Create a free Supabase project and configure the server connection and database access restrictions.
+2. Sign in to Streamlit Community Cloud with your GitHub account. Select this repository, the `main` branch, and `app.py` as the entry point. Choose Python 3.12.
+3. In **Advanced settings / Secrets**, configure `DATABASE_URL`, `TEACHER_EMAIL`, and the initial `TEACHER_PASSWORD`.
+4. Deploy the application, sign in as the teacher, and add the sample questions.
+5. Create a separate student account and complete a quiz. Check the navigation, answer choices, and results on a phone as well. Then share the actual `*.streamlit.app` URL provided by Streamlit.
+
+Free plans may include application sleep, database pausing, storage limits, and compute limits. Check the current Streamlit and Supabase limits in your account dashboards. This application provides multiple-choice SQL/PLSQL knowledge assessments; it does not execute SQL against an Oracle server.
+
+## Tests
 
 ```bash
-.venv/bin/python -m pip install pytest
+.venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q
 ```
 
-Avtomatik yoxlamalar giriş, müəllim səlahiyyəti, cavab açarının gizliliyi, server vaxt limiti, nəticələrin hesablanması, testin təkrar bitirilməsi və Streamlit giriş/test/panel axınlarını yoxlayır.
+Automated tests cover authentication, teacher authorization, answer-key privacy, server-enforced deadlines, score calculation, repeated quiz submission, and Streamlit login, quiz, and teacher-panel workflows.
 
-İlk versiyada e-poçt təsdiqi, şifrə bərpası, MFA, paylaşılmış giriş cəhd limiti və ayrıca adlandırılmış testlərin idarəsi yoxdur. Şəxsi istifadə və kiçik pilot üçün başlayın; geniş ictimai istifadə üçün bunları və verilənlər bazası ehtiyat nüsxələrini ayrıca hazırlayın.
+## Current limitations
+
+This initial version does not include email verification, password recovery, MFA, shared login rate limiting, or management of separately named quizzes. Start with personal use or a small pilot. Before wider public use, add these capabilities and configure database backups.
