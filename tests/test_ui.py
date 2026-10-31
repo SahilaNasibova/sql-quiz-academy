@@ -20,8 +20,8 @@ def test_login_dashboard_quiz_and_results(tmp_path,monkeypatch):
     app.button[0].click().run()
     assert not app.exception
     assert app.title[0].value=='SQL öyrən, biliklərini sına!'
-    app.sidebar.radio[0].set_value('Testlər').run()
-    next(b for b in app.button if b.label=='Testə başla').click().run()
+    next(b for b in app.button if b.label=='▶  Testə başla').click().run()
+    assert app.sidebar.radio[0].value=='Testlər'
     assert not app.exception
     assert any('Qalan vaxt'==m.label for m in app.metric)
     answer=next(r for r in app.radio if r.label=='Cavabınızı seçin')
