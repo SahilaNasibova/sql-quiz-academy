@@ -182,6 +182,28 @@ else:
             db.set_duration(user['email'],duration)
             st.success('Yadda saxlanıldı.')
         qs = db.questions()
+        st.subheader('Sualı sil')
+        if qs:
+            question_by_id = {item['id']: item for item in qs}
+            delete_id = st.selectbox(
+                'Silmək üçün sual', list(question_by_id),
+                format_func=lambda value: f"{question_by_id[value]['topic']} — {question_by_id[value]['prompt'][:100]}",
+                key='delete_question_id',
+            )
+            st.caption('Sual yeni testlərdən çıxarılacaq. Əvvəlki test nəticələri saxlanacaq.')
+            confirmed = st.checkbox(
+                'Seçilmiş sualı silməyi təsdiqləyirəm', key=f'confirm_delete_{delete_id}'
+            )
+            if st.button('Sualı sil', disabled=not confirmed):
+                db.remove_question(user['email'], delete_id)
+                st.session_state.question_deleted = True
+                st.rerun()
+        else:
+            st.info('Silmək üçün sual yoxdur.')
+        if st.session_state.pop('question_deleted', False):
+            st.success('Sual silindi.')
+        st.divider()
+        st.subheader('Sual əlavə et və ya redaktə et')
         selected = st.selectbox('Redaktə üçün sual', ['Yeni sual']+[q['id'] for q in qs], format_func=lambda x: x if x=='Yeni sual' else next(q['prompt'][:75] for q in qs if q['id']==x))
         q = next((q for q in qs if q['id']==selected),None)
         with st.form(f'question_{selected}'):
@@ -199,9 +221,6 @@ else:
                 st.rerun()
             except ValueError as e:
                 st.error(str(e))
-        if q and st.checkbox('Seçilmiş sualı silməyi təsdiqləyirəm') and st.button('Sualı sil'):
-            db.remove_question(user['email'],q['id'])
-            st.rerun()
         if st.button('Nümunə sualları əlavə et',disabled=bool(qs)):
             for item in json.loads(Path(__file__).with_name('sample_questions.json').read_text()):
                 db.save_question(user['email'],item)

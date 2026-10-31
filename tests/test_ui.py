@@ -44,4 +44,16 @@ def test_teacher_panel(tmp_path,monkeypatch):
     assert not app.exception
     next(b for b in app.button if b.label=='Nümunə sualları əlavə et').click().run()
     assert not app.exception
-    assert len(app.selectbox[0].options)==7
+    edit = next(widget for widget in app.selectbox if widget.label=='Redaktə üçün sual')
+    assert len(edit.options)==7
+    delete = next(button for button in app.button if button.label=='Sualı sil')
+    assert delete.disabled
+    next(widget for widget in app.checkbox if widget.label=='Seçilmiş sualı silməyi təsdiqləyirəm').check().run()
+    delete = next(button for button in app.button if button.label=='Sualı sil')
+    assert not delete.disabled
+    delete.click().run()
+    assert not app.exception
+    edit = next(widget for widget in app.selectbox if widget.label=='Redaktə üçün sual')
+    assert len(edit.options)==6
+    assert any(message.value=='Sual silindi.' for message in app.success)
+    assert next(button for button in app.button if button.label=='Sualı sil').disabled
